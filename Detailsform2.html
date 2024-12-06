@@ -10,7 +10,9 @@
     <script type="module">
         import { initializeApp } from "https://www.gstatic.com/firebasejs/10.14.1/firebase-app.js";
         import { getFirestore, doc, setDoc } from "https://www.gstatic.com/firebasejs/10.14.1/firebase-firestore.js";
+        import { getAuth, onAuthStateChanged } from "https://www.gstatic.com/firebasejs/10.14.1/firebase-auth.js";
 
+        // Firebase configuration
         const firebaseConfig = {
             apiKey: "AIzaSyC_8gFPJrjBhjs4Zj5YDyYcoZQjfl6Amr0",
             authDomain: "autism-evaluation-platform.firebaseapp.com",
@@ -21,45 +23,117 @@
             measurementId: "G-1TGEHTTJF4"
         };
 
+        // Initialize Firebase
         const app = initializeApp(firebaseConfig);
         const db = getFirestore(app);
+        const auth = getAuth(app);
 
-        document.addEventListener('DOMContentLoaded', function () {
-            document.getElementById('autismForm').addEventListener('submit', async function (event) {
-                event.preventDefault();
-
-                const name = document.getElementById('name').value;
-                const gender = document.getElementById('gender').value;
-                const date = document.getElementById('date').value;
-                const dob = document.getElementById('dob').value;
-                const age = document.getElementById('age').value;
-                const examiner = document.getElementById('examiner').value;
-
-                // Store details in Firestore
+        // Save form data to Firestore
+        async function storeFormDataInFirestore(data, studentName) {
+            const user = auth.currentUser;
+            if (user) {
+                const role = 'teacher'; // Simulate role-checking. Replace with actual role-check logic.
                 try {
-                    const userId = "some-user-id"; // Replace with the actual user ID
-                    await setDoc(doc(db, "assessments", userId), {
-                        name: name,
-                        gender: gender,
-                        date: date,
-                        dob: dob,
-                        age: age,
-                        examiner: examiner
-                    });
-                    // Redirect to next page after storing data
-                    window.location.href = "Social.html"; // Update with your actual next page
+                    let docRef;
+                    if (role === 'teacher') {
+                     const questionnaireId = studentName.replace(/\s+/g, "_").toLowerCase();
+                    docRef = doc(db, "users", user.uid, "Students Questionnaires", questionnaireId, "details");
+                    }
+                    else {
+                        docRef = doc(db, "users", user.uid, "Questionnaire", "details");
+                    }
+
+                    await setDoc(docRef, data, { merge: true });
+                    console.log("Data stored successfully!");
                 } catch (error) {
-                    console.error("Error adding document: ", error);
+                    console.error("Error storing data: ", error);
+                }
+            } else {
+                console.error("User not signed in.");
+            }
+        }
+
+        // Save form data to localStorage
+        function saveFormDataToLocalStorage() {
+            const formData = {
+                name: document.getElementById('name').value,
+                gender: document.getElementById('gender').value,
+                date: document.getElementById('date').value,
+                dob: document.getElementById('dob').value,
+                age: document.getElementById('age').value,
+                examiner: document.getElementById('examiner').value
+            };
+            localStorage.setItem('autismFormData', JSON.stringify(formData));
+        }
+
+        // Load form data from localStorage
+        function loadFormDataFromLocalStorage() {
+            const savedData = JSON.parse(localStorage.getItem('autismFormData'));
+            if (savedData) {
+                document.getElementById('name').value = savedData.name;
+                document.getElementById('gender').value = savedData.gender;
+                document.getElementById('date').value = savedData.date;
+                document.getElementById('dob').value = savedData.dob;
+                document.getElementById('age').value = savedData.age;
+                document.getElementById('examiner').value = savedData.examiner;
+            }
+        }
+
+        document.addEventListener('DOMContentLoaded', () => {
+            loadFormDataFromLocalStorage(); // Load data on page load
+
+            const form = document.getElementById('autismForm');
+            form.onsubmit = async (e) => {
+                e.preventDefault();
+
+                let allFilled = true;
+                let age = parseInt(document.getElementById('age').value);
+                const errorMessageElement = document.getElementById('error-message');
+                errorMessageElement.textContent = '';
+
+                form.querySelectorAll('input, select').forEach(function(input) {
+                    if (!input.value) {
+                        allFilled = false;
+                    }
+                });
+
+                if (isNaN(age) || age < 3 || age > 9) {
+                    allFilled = false;
+                    errorMessageElement.textContent = 'Age must be between 3 and 9 years.';
+                }
+
+                if (allFilled) {
+                    saveFormDataToLocalStorage();
+
+                    const studentName = document.getElementById('name').value;
+                    const formData = {
+                        name: studentName,
+                        gender: document.getElementById('gender').value,
+                        date: document.getElementById('date').value,
+                        dob: document.getElementById('dob').value,
+                        age: document.getElementById('age').value,
+                        examiner: document.getElementById('examiner').value,
+                        timestamp: new Date()
+                    };
+
+                    await storeFormDataInFirestore(formData, studentName);
+
+                    window.location.href = "social.html";
+                }
+            };
+
+            onAuthStateChanged(auth, (user) => {
+                if (!user) {
+                    console.error("User not signed in.");
                 }
             });
         });
     </script>
 </head>
 <body>
-
     <h2>Indian Scale for Assessment of Autism</h2>
 
-    <form id="autismForm" action="Social.html" method="POST">
+    <form id="autismForm" action="social.html" method="POST">
         <div class="question">
             <label for="name">Name of the child <span class="required">*</span></label>
             <input type="text" id="name" name="name" class="form-control" required>
@@ -90,7 +164,6 @@
             <input type="text" id="age" name="age" class="form-control" readonly>
         </div>
 
-        <!-- Error message div placed directly below the Age field -->
         <div id="error-message" style="color: red; margin-top: 5px;"></div>
 
         <div class="question">
@@ -105,25 +178,21 @@
     </form>
 
     <script>
-        window.onload = function() {
-            // Set system date in the "date" field
-            var today = new Date().toISOString().split('T')[0];
+        window.onload = function () {
+            const today = new Date().toISOString().split('T')[0];
             document.getElementById('date').value = today;
-
-            // Set the max date in "dob" field to today's date
             document.getElementById('dob').setAttribute('max', today);
         };
 
-        // Calculate age based on D.O.B. only when a full date is selected
-        document.getElementById('dob').addEventListener('change', function() {
-            var dobValue = this.value;
+        document.getElementById('dob').addEventListener('change', function () {
+            const dobValue = this.value;
+            const errorMessageElement = document.getElementById('error-message');
 
-            // Ensure full date (YYYY-MM-DD) is provided before calculating age
             if (dobValue.length === 10) {
-                var dob = new Date(dobValue);
-                var today = new Date();
-                var age = today.getFullYear() - dob.getFullYear();
-                var monthDifference = today.getMonth() - dob.getMonth();
+                const dob = new Date(dobValue);
+                const today = new Date();
+                let age = today.getFullYear() - dob.getFullYear();
+                const monthDifference = today.getMonth() - dob.getMonth();
 
                 if (monthDifference < 0 || (monthDifference === 0 && today.getDate() < dob.getDate())) {
                     age--;
@@ -131,38 +200,13 @@
 
                 document.getElementById('age').value = age;
 
-                // Validate age and show the error message as text
-                if (age <= 2 || age > 9) {
-                    document.getElementById('error-message').textContent = 'Age must be between 3 and 9 years.';
+                if (age < 3 || age > 9) {
+                    errorMessageElement.textContent = 'Age must be between 3 and 9 years.';
                 } else {
-                    document.getElementById('error-message').textContent = '';
+                    errorMessageElement.textContent = '';
                 }
-            }
-        });
-
-        // Form validation on submit
-        document.getElementById('autismForm').addEventListener('submit', function(event) {
-            var form = this;
-            var allFilled = true;
-
-            form.querySelectorAll('input, select').forEach(function(input) {
-                if (!input.value) {
-                    allFilled = false;
-                }
-            });
-
-            var age = parseInt(document.getElementById('age').value);
-            if (age <= 2 || age > 9) {
-                allFilled = false;
-                document.getElementById('error-message').textContent = 'Age must be between 3 and 9 years.';
-            }
-
-            if (!allFilled) {
-                event.preventDefault();
             }
         });
     </script>
-
-    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0-alpha1/dist/js/bootstrap.bundle.min.js"></script>
 </body>
 </html>
